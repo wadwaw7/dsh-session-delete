@@ -1,74 +1,114 @@
 # dsh-session-delete
 
-给 DeepSeek Harness 补上「**真正删除会话**」。
+English | [中文](README.zh.md) · Companion spec: [dsh-session-layout](https://github.com/wadwaw7/dsh-session-layout)
 
-官方只有归档：归档后 `~/.dsh/sessions` 里的日志还在，项目里的会话文件夹也还在。本插件一次删除同时处理三处：
+DeepSeek Harness ships archive but no deletion: archived logs stay under `~/.dsh/sessions`,
+and the session folder inside the project is never touched. This plugin removes all three
+sides of a session at once:
 
-1. **会话存储**：`<sessionPersistence.root>/<工作区>/<sessionId>/`
-2. **工作区记录**：`workspace.detachSession(id)` + 从 `archivedSessionIds` 摘除
-3. **项目内会话文件夹**：`<会话 cwd>/会话/<直接子目录>` 中 `.session.json` 同时满足 `provider=dsh` 与 `thread_id === sessionId` 的目录
+1. **Session storage** — `<sessionPersistence.root>/<workspace>/<sessionId>/`
+2. **Workspace record** — `workspace.detachSession(id)` plus removal from `archivedSessionIds`
+3. **Project folder** — subdirectories of `<cwd>/会话/` whose `.session.json` has `provider=dsh`
+   **and** `thread_id === sessionId`
 
-按 `thread_id` 精确匹配（不是按标题/日期猜），同一工作区里其它会话的文件夹不会被误删；无宿主元数据的旧目录、其他 AI 同 ID 目录、联接目标一律保留。
+Matching is by `thread_id`, never by title or date, so other sessions in the same workspace
+keep their folders. Legacy directories without host metadata, same-id folders created by
+another AI, and symlink or junction targets are always preserved.
 
-![删除入口](https://raw.githubusercontent.com/wadwaw7/dsh-session-delete/main/assets/screenshot.png)
+## Better accuracy with dsh-session-layout
 
-## 能力
+Use the [dsh-session-layout](https://github.com/wadwaw7/dsh-session-layout) convention and
+deletion becomes both more precise and safer:
 
-| 入口 | 行为 |
+| Convention | Effect when deleting |
 | --- | --- |
-| 侧栏会话行 `⋯` 菜单 → **删除会话** | 二次确认后删除该会话（推荐用法） |
-| `/list-sessions` | 列出所有会话：id、标题、归档状态 |
-| `/delete-session <sessionId>` | 命令行版删除 |
-| `/purge-archived` | 清空所有已归档会话 |
+| Every session folder has `.session.json` with the real session id | Exactly one folder is matched |
+| Folder names stay `YYYY-MM-DD-HHMM-<topic>`, no session id inside | Name collisions cannot cause a wrong delete; matching uses metadata only |
+| Each AI writes its own `provider` | Same-named folders from Codex and others are left untouched |
+| Product source lives in the project directory; only process files sit in the session folder | Deleting a session never touches source code |
+| One-off scripts live inside the session folder, not the workspace root | Scripts are cleaned up with the session |
 
-![菜单](https://raw.githubusercontent.com/wadwaw7/dsh-session-delete/main/assets/menu.png)
+Conversely, a folder without `.session.json` — or with incomplete metadata — is always kept:
+the plugin never guesses. That is exactly where a wrong delete gets blocked. A 30-second
+check before deleting:
 
-## 安装
-
-### 插件市场（推荐）
-
-设置页 → 插件市场 → 搜索 `dsh-session-delete` → 安装 → 重启 DSH。
-
-### 手动
-
-```powershell
-cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-session-delete" "<本仓库路径>"
-# 重启后由 bundle 的 cordis.patch.yml 自动挂载：
-# - insert:
-#     - id: session-delete
-#       name: dsh-session-delete
+```bash
+cat "会话/<dir>/.session.json"                          # 1. which session owns this folder
+grep -rl '"thread_id": "<sessionId>"' 会话/*/.session.json  # 2. any duplicate claim
+find "会话/<dir>" -type l                                # 3. symlinks (deletion is refused)
 ```
 
-## 配置
+## Entries
+
+| Entry | Behaviour |
+| --- | --- |
+| Sidebar session row `⋯` menu → **Delete session** | Confirm, then delete (recommended) |
+| `/list-sessions` | List every session: id, title, archived state |
+| `/delete-session <sessionId>` | Command-line deletion |
+| `/purge-archived` | Remove every archived session |
+
+## Install
+
+### Marketplace (recommended)
+
+Settings → Plugin Marketplace → search `dsh-session-delete` → Install → restart DSH.
+
+### Manual
+
+```powershell
+cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-session-delete" "<this repo>"
+```
+
+Then register it in the profile `package.json` — both entries are required, or the Plugin
+page will not list it:
+
+```json
+{
+  "dependencies": { "dsh-session-delete": "link:<this repo>" },
+  "dsh": { "profile": { "bundles": ["…", "dsh-session-delete"] } }
+}
+```
+
+## Configuration
 
 ```yaml
 - id: session-delete
   name: dsh-session-delete
   config:
-    sessionFolders: ["会话"]   # 可选，默认就是 ["会话"]
+    sessionFolders: ["会话"]   # optional, defaults to ["会话"]
 ```
 
-## 安全边界
+## Safety boundaries
 
-- 目标会话正在运行、维护中、存在排队输入或关联任务 → 拒绝删除，不自动取消正在进行的任务。
-- 删除前核对加载状态、原生写锁、唯一存储与目录边界（realpath 校验，拒绝联接/符号链接）。
-- 先同盘暂存 → 解除工作区/归档/置顶引用 → 清理暂存；注册表阶段失败会回滚目录与引用。
-- 最终清理失败时返回暂存路径与错误，不伪报完整成功。
+- A target that is running, in maintenance, has queued input, or owns related tasks is
+  refused; running work is never cancelled automatically.
+- Before deletion the plugin checks load state, the native write lock, unique storage, and
+  the directory boundary (realpath; symlinks and junctions are refused).
+- Folders are staged on the same volume, then edges (workspace, archive, pin) are released,
+  and only then is the staging copy removed. A registry-stage failure rolls folder and
+  edges back.
+- If final cleanup fails the staging path and the error are returned — success is never faked.
 
-## 实现
+## Implementation
 
-- Host（`lib/index.js`、`lib/lifecycle.js`）：注入 `commands / sessionPersistence / workspaceRegistry / agents / agentLoop / sessions / connection`，提供 `POST /api/session.delete`（body `{ sessionId }`，返回 `{ ok, dirs, local }`）；仅对本插件生命周期内捕获的原生 `AgentHandle` 调用 `dispose()` 释放写锁。
-- Client（`client.js`，ModuleLoader 包）：`ctx.slots.inject('sidebar.workspaces.session.menu.item', ...)`，`order: 500`，排在官方「归档」之后，成功后 `location.reload()`。
+- Host (`lib/index.js`, `lib/lifecycle.js`): injects
+  `commands / sessionPersistence / workspaceRegistry / agents / agentLoop / sessions / connection`
+  and serves `POST /api/session.delete` (`{ sessionId }` → `{ ok, dirs, local }`). Only the
+  native `AgentHandle` captured inside this plugin's lifetime gets `dispose()`, to release the
+  write lock.
+- Client (`client.js`, ModuleLoader bundle): `ctx.slots.inject('sidebar.workspaces.session.menu.item', ...)`
+  with `order: 500`, right after the official "Archive" entry; reloads on success.
 
-## 兼容性
+## Compatibility
 
-- 面向 DSH 0.2.x（desktop / web profile 均可）。
-- 宿主接口全部走注入，不打包 `@deepseek-ai/*` 运行时副本。
+- Targets DSH 0.2.x on both desktop and web profiles.
+- Host interfaces are injected; no `@deepseek-ai/*` runtime copy is bundled.
 
-## 披露
+## Disclosure
 
-- 无云端依赖、无数据外发、不存储任何 API key。
-- 仅在本地读写会话存储与项目会话目录，删除目标由用户显式选择。
+- No cloud dependency, no outbound data, no API keys stored.
+- Local reads and writes only, on the session storage and the project's session folders; the
+  deletion target is always chosen by the user.
 
 ## License
 
