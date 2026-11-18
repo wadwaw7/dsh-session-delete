@@ -1,0 +1,4 @@
+# Insert a new plugin row; a plain id patch only overrides existing rows.
+- insert:
+    - id: session-delete
+      name: dsh-session-delete

@@ -1,0 +1,44 @@
+{
+  "name": "dsh-session-delete",
+  "version": "0.2.1",
+  "description": "真正删除 DSH 会话：会话存储、工作区记录，以及项目目录下对应的会话文件夹（按 thread_id 精确匹配）",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.zh.md",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "session",
+    "delete",
+    "cordis-plugin"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "plugin": true,
+    "kind": "server",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wadwaw7/dsh-session-delete.git"
+  },
+  "license": "MIT"
+}
