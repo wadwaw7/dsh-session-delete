@@ -1,6 +1,6 @@
 # dsh-session-delete
 
-English | [中文](README.zh.md) · 配套规范：[dsh-session-layout](https://github.com/wadwaw7/dsh-session-layout)
+[English](README.md) | 中文 · 配套规范：[dsh-session-layout](https://github.com/wadwaw7/dsh-session-layout)
 
 给 DeepSeek Harness 补上「**真正删除会话**」。
 
